@@ -1,20 +1,38 @@
 {
   "name": "mobilradar",
   "version": "1.0.0",
-  "description": "",
+  "description": "Mobile radar app using Bluetooth to detect nearby devices",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "echo 'Build command placeholder'"
+  },
+  "dependencies": {
+    "react": "18.2.0",
+    "react-native": "0.72.6",
+    "expo": "~49.0.15",
+    "expo-status-bar": "~1.6.0",
+    "react-native-ble-manager": "^11.5.3",
+    "react-native-permissions": "^3.10.1",
+    "react-native-svg": "^13.14.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/papitvenge/mobilradar.git"
   },
-  "keywords": [],
+  "keywords": ["bluetooth", "radar", "proximity", "mobile"],
   "author": "",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/papitvenge/mobilradar/issues"
   },
-  "homepage": "https://github.com/papitvenge/mobilradar#readme"
+  "homepage": "https://github.com/papitvenge/mobilradar#readme",
+  "private": true
 }
