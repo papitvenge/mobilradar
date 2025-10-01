@@ -1,8 +1,15 @@
-import { NativeModules, NativeEventEmitter, Platform, PermissionsAndroid } from 'react-native';
-import BleManager from 'react-native-ble-manager';
+import { Platform, PermissionsAndroid } from 'react-native';
 
-const BleManagerModule = NativeModules.BleManager;
-const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+let BleManager, BleManagerModule, bleManagerEmitter, NativeModules, NativeEventEmitter;
+
+if (Platform.OS !== 'web') {
+  const RN = require('react-native');
+  NativeModules = RN.NativeModules;
+  NativeEventEmitter = RN.NativeEventEmitter;
+  BleManager = require('react-native-ble-manager').default;
+  BleManagerModule = NativeModules.BleManager;
+  bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+}
 
 class BluetoothService {
   constructor() {
@@ -12,6 +19,11 @@ class BluetoothService {
   }
 
   async initialize() {
+    if (Platform.OS === 'web') {
+      console.log('Web platform detected - Bluetooth not available');
+      return true;
+    }
+
     try {
       await BleManager.start({ showAlert: false });
       console.log('BLE Manager initialized');
@@ -81,6 +93,11 @@ class BluetoothService {
   }
 
   async startScanning() {
+    if (Platform.OS === 'web') {
+      console.log('Scanning not available on web');
+      return;
+    }
+
     if (this.scanning) {
       return;
     }
@@ -102,6 +119,10 @@ class BluetoothService {
   }
 
   stopScanning() {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
     this.scanning = false;
     BleManager.stopScan();
   }
@@ -128,6 +149,10 @@ class BluetoothService {
   }
 
   cleanup() {
+    if (Platform.OS === 'web') {
+      return;
+    }
+
     this.stopScanning();
     if (this.discoverListener) {
       this.discoverListener.remove();

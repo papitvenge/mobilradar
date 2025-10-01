@@ -5,15 +5,14 @@ import {
   StyleSheet,
   TouchableOpacity,
   SafeAreaView,
-  StatusBar,
-  Alert,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
-import BluetoothService from './services/BluetoothService';
-import RadarScreen from './components/RadarScreen';
-import DeviceList from './components/DeviceList';
+import BluetoothService from '../services/BluetoothService';
+import RadarScreen from '../components/RadarScreen';
+import DeviceList from '../components/DeviceList';
 
-export default function App() {
+export default function Index() {
   const [devices, setDevices] = useState([]);
   const [scanning, setScanning] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -23,11 +22,18 @@ export default function App() {
     initBluetooth();
 
     return () => {
-      BluetoothService.cleanup();
+      if (Platform.OS !== 'web') {
+        BluetoothService.cleanup();
+      }
     };
   }, []);
 
   const initBluetooth = async () => {
+    if (Platform.OS === 'web') {
+      setInitialized(true);
+      return;
+    }
+
     const success = await BluetoothService.initialize();
     if (success) {
       setInitialized(true);
@@ -43,6 +49,14 @@ export default function App() {
   };
 
   const toggleScanning = () => {
+    if (Platform.OS === 'web') {
+      Alert.alert(
+        'Web Platform',
+        'Bluetooth scanning is only available on iOS and Android. This is a demo view for web.'
+      );
+      return;
+    }
+
     if (scanning) {
       BluetoothService.stopScanning();
       setScanning(false);
@@ -58,12 +72,12 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
-
       <View style={styles.header}>
         <Text style={styles.title}>MobilRadar</Text>
         <Text style={styles.subtitle}>
-          {scanning ? 'Scanning...' : 'Ready'}
+          {Platform.OS === 'web'
+            ? 'Demo Mode (Web)'
+            : scanning ? 'Scanning...' : 'Ready'}
         </Text>
       </View>
 
@@ -102,6 +116,11 @@ export default function App() {
         <Text style={styles.infoText}>
           Devices found: {devices.length}
         </Text>
+        {Platform.OS === 'web' && (
+          <Text style={styles.webWarning}>
+            Install on iOS/Android for full functionality
+          </Text>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -178,5 +197,11 @@ const styles = StyleSheet.create({
   infoText: {
     color: '#00ff41',
     fontSize: 14,
+  },
+  webWarning: {
+    color: '#ffaa00',
+    fontSize: 12,
+    marginTop: 8,
+    opacity: 0.8,
   },
 });

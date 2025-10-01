@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
+    "scheme": "mobilradar",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -38,7 +39,13 @@
         "ACCESS_COARSE_LOCATION"
       ]
     },
+    "web": {
+      "bundler": "metro"
+    },
     "plugins": [
+      [
+        "expo-router"
+      ],
       [
         "react-native-ble-manager",
         {
