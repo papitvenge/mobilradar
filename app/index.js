@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ export default function Index() {
   const [scanning, setScanning] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [viewMode, setViewMode] = useState('radar');
+  const demoIntervalRef = useRef(null);
 
   useEffect(() => {
     initBluetooth();
@@ -24,6 +25,10 @@ export default function Index() {
     return () => {
       if (Platform.OS !== 'web') {
         BluetoothService.cleanup();
+      }
+      if (demoIntervalRef.current) {
+        clearInterval(demoIntervalRef.current);
+        demoIntervalRef.current = null;
       }
     };
   }, []);
@@ -50,10 +55,34 @@ export default function Index() {
 
   const toggleScanning = () => {
     if (Platform.OS === 'web') {
-      Alert.alert(
-        'Web Platform',
-        'Bluetooth scanning is only available on iOS and Android. This is a demo view for web.'
-      );
+      if (!scanning) {
+        // Start demo scanning: generate random nearby devices
+        setScanning(true);
+        const generateDemoDevices = () => {
+          const count = Math.floor(Math.random() * 6); // 0-5 devices
+          const demo = Array.from({ length: count }).map((_, i) => {
+            const id = `${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+            const rssi = -30 - Math.floor(Math.random() * 60); // -30 to -90 dBm
+            const distance = Math.max(0.1, Math.min(100, Math.random() * 20));
+            return {
+              id,
+              name: `DemoDevice_${i + 1}`,
+              rssi,
+              distance,
+            };
+          });
+          setDevices(demo);
+        };
+        generateDemoDevices();
+        demoIntervalRef.current = setInterval(generateDemoDevices, 2000);
+      } else {
+        setScanning(false);
+        setDevices([]);
+        if (demoIntervalRef.current) {
+          clearInterval(demoIntervalRef.current);
+          demoIntervalRef.current = null;
+        }
+      }
       return;
     }
 
@@ -118,7 +147,7 @@ export default function Index() {
         </Text>
         {Platform.OS === 'web' && (
           <Text style={styles.webWarning}>
-            Install on iOS/Android for full functionality
+            Demo mode: simulated devices on web
           </Text>
         )}
       </View>
