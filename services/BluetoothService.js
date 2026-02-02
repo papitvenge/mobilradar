@@ -55,10 +55,14 @@ class BluetoothService {
     this.discoverListener = bleManagerEmitter.addListener(
       'BleManagerDiscoverPeripheral',
       (peripheral) => {
-        if (peripheral.name || peripheral.advertising?.localName) {
+        const deviceName = peripheral.name || 
+          (peripheral.advertising && peripheral.advertising.localName) || 
+          'Unknown';
+        
+        if (peripheral.name || (peripheral.advertising && peripheral.advertising.localName)) {
           this.devices.set(peripheral.id, {
             id: peripheral.id,
-            name: peripheral.name || peripheral.advertising?.localName || 'Unknown',
+            name: deviceName,
             rssi: peripheral.rssi,
             distance: this.calculateDistance(peripheral.rssi),
             lastSeen: Date.now()
