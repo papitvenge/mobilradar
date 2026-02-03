@@ -1,7 +1,6 @@
-java
 package com.mobilradar;
 
-import android.telephony.CellInfo;
+import android.content.Context;
 import android.telephony.TelephonyManager;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
@@ -13,7 +12,7 @@ public class CellModule extends ReactContextBaseJavaModule {
 
     public CellModule(ReactApplicationContext reactContext) {
         super(reactContext);
-        telephonyManager = (TelephonyManager) reactContext.getSystemService(reactContext.TELEPHONY_SERVICE);
+        telephonyManager = (TelephonyManager) reactContext.getSystemService(Context.TELEPHONY_SERVICE);
     }
 
     @Override

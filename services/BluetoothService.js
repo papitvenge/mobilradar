@@ -1,14 +1,23 @@
 import { Platform, PermissionsAndroid } from 'react-native';
 
-let BleManager, BleManagerModule, bleManagerEmitter, NativeModules, NativeEventEmitter;
+let BleManager = null;
+let BleManagerModule = null;
+let bleManagerEmitter = null;
 
 if (Platform.OS !== 'web') {
-  const RN = require('react-native');
-  NativeModules = RN.NativeModules;
-  NativeEventEmitter = RN.NativeEventEmitter;
-  BleManager = require('react-native-ble-manager').default;
-  BleManagerModule = NativeModules.BleManager;
-  bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+  try {
+    const RN = require('react-native');
+    const NativeModules = RN.NativeModules;
+    const NativeEventEmitter = RN.NativeEventEmitter;
+    BleManager = require('react-native-ble-manager').default;
+    BleManagerModule = NativeModules.BleManager;
+    if (BleManagerModule) {
+      bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
+    }
+  } catch (e) {
+    // Expo Go mangler react-native-ble-manager – appen krasjer ikke
+    console.warn('BLE not available (e.g. Expo Go):', e?.message || e);
+  }
 }
 
 class BluetoothService {
@@ -16,12 +25,17 @@ class BluetoothService {
     this.devices = new Map();
     this.listeners = [];
     this.scanning = false;
+    this.shouldScan = false;
   }
 
   async initialize() {
     if (Platform.OS === 'web') {
       console.log('Web platform detected - Bluetooth not available');
       return true;
+    }
+    if (!BleManager || !BleManagerModule) {
+      console.warn('BLE native module not available (use development build for real BLE)');
+      return false;
     }
 
     try {
@@ -41,31 +55,76 @@ class BluetoothService {
   }
 
   async requestAndroidPermissions() {
-    const permissions = [
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-      PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-    ];
+    const apiLevel = Platform.Version;
+    
+    // Android 12 (API 31+) krever nye Bluetooth-tillatelser
+    // Eldre versjoner bruker ACCESS_FINE_LOCATION for BLE-skanning
+    const permissions = apiLevel >= 31
+      ? [
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ]
+      : [
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ];
 
     const granted = await PermissionsAndroid.requestMultiple(permissions);
     return Object.values(granted).every(val => val === PermissionsAndroid.RESULTS.GRANTED);
   }
 
   setupListeners() {
+    if (!bleManagerEmitter) return;
     this.discoverListener = bleManagerEmitter.addListener(
       'BleManagerDiscoverPeripheral',
       (peripheral) => {
         const deviceName = peripheral.name || 
           (peripheral.advertising && peripheral.advertising.localName) || 
           'Unknown';
-        
+
         if (peripheral.name || (peripheral.advertising && peripheral.advertising.localName)) {
+          const now = Date.now();
+          const prev = this.devices.get(peripheral.id);
+          const rawRssi =
+            typeof peripheral.rssi === 'number'
+              ? peripheral.rssi
+              : prev?.rawRssi ?? null;
+
+          let rssi = rawRssi;
+          if (
+            prev &&
+            typeof prev.rssi === 'number' &&
+            typeof rawRssi === 'number'
+          ) {
+            // Eksponentiell glatting for å redusere støy
+            const alpha = 0.8; // vekt på tidligere verdi
+            rssi = prev.rssi * alpha + rawRssi * (1 - alpha);
+          }
+
+          const distance = this.calculateDistance(rssi);
+          let stableDistance = distance;
+          if (
+            prev &&
+            typeof prev.distance === 'number' &&
+            typeof distance === 'number'
+          ) {
+            // Enkelt hoppfilter: ignorer ekstreme sprang i én enkelt avlesning
+            const maxFactor = 3;
+            if (
+              distance > prev.distance * maxFactor ||
+              distance < prev.distance / maxFactor
+            ) {
+              stableDistance = prev.distance;
+            }
+          }
+
           this.devices.set(peripheral.id, {
             id: peripheral.id,
             name: deviceName,
-            rssi: peripheral.rssi,
-            distance: this.calculateDistance(peripheral.rssi),
-            lastSeen: Date.now()
+            rssi,
+            rawRssi,
+            distance: stableDistance,
+            lastSeen: now,
           });
           this.notifyListeners();
         }
@@ -77,30 +136,46 @@ class BluetoothService {
       () => {
         this.scanning = false;
         console.log('Scan stopped');
+        if (this.shouldScan) {
+          // Start ny scan for å få så kontinuerlige oppdateringer som mulig
+          this.startScanning();
+        }
       }
     );
   }
 
   calculateDistance(rssi) {
-    const txPower = -59;
-    if (rssi === 0) {
-      return -1.0;
+    if (rssi == null || rssi === 0 || Number.isNaN(rssi)) {
+      return null;
     }
 
-    const ratio = rssi * 1.0 / txPower;
-    if (ratio < 1.0) {
-      return Math.pow(ratio, 10);
-    } else {
-      const distance = (0.89976) * Math.pow(ratio, 7.7095) + 0.111;
-      return Math.min(distance, 100);
-    }
+    // Standard antatt RSSI ved 1 meter for BLE.
+    const txPower = -59;
+
+    // Klipp til fornuftig intervall for å unngå ekstreme utslag.
+    const clipped = Math.max(-100, Math.min(-40, rssi));
+
+    // Enkel to‑slope log-normal modell:
+    // - nærmere enn ca. 3–5m: svakere demping (n ~= 2)
+    // - lenger unna: sterkere demping (n ~= 3.5)
+    const nearExponent = 2.0;
+    const farExponent = 3.5;
+    const exponent = clipped > -70 ? nearExponent : farExponent;
+
+    const distance = Math.pow(10, (txPower - clipped) / (10 * exponent));
+
+    // Klipp til typisk bruksområde for en mobilradar.
+    const clamped = Math.max(0.1, Math.min(50, distance));
+    return clamped;
   }
 
   async startScanning() {
-    if (Platform.OS === 'web') {
-      console.log('Scanning not available on web');
+    if (Platform.OS === 'web' || !BleManager) {
+      if (!BleManager) console.log('Scanning not available - BLE module missing');
       return;
     }
+
+    this.shouldScan = true;
 
     if (this.scanning) {
       return;
@@ -108,14 +183,10 @@ class BluetoothService {
 
     try {
       this.scanning = true;
-      await BleManager.scan([], 5, false);
+      // allowDuplicates=true gjør at vi får kontinuerlige RSSI‑oppdateringer
+      // slik at avstand/posisjon på radaren oppdateres fortløpende
+      await BleManager.scan([], 8, true);
       console.log('Scanning started');
-
-      setTimeout(() => {
-        if (this.scanning) {
-          this.startScanning();
-        }
-      }, 5500);
     } catch (error) {
       console.error('Scan error:', error);
       this.scanning = false;
@@ -123,20 +194,35 @@ class BluetoothService {
   }
 
   stopScanning() {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || !BleManager) {
       return;
     }
-
+    this.shouldScan = false;
     this.scanning = false;
-    BleManager.stopScan();
+    try {
+      BleManager.stopScan();
+    } catch (e) {
+      console.warn('stopScan:', e?.message);
+    }
   }
 
   getDevices() {
     const now = Date.now();
-    const recentDevices = Array.from(this.devices.values()).filter(
-      device => now - device.lastSeen < 10000
-    );
-    return recentDevices;
+    const maxAgeMs = 15000;
+    const devicesWithConfidence = [];
+
+    this.devices.forEach((device) => {
+      const age = now - device.lastSeen;
+      if (age < maxAgeMs) {
+        const confidence = Math.max(0.2, 1 - age / maxAgeMs);
+        devicesWithConfidence.push({
+          ...device,
+          confidence,
+        });
+      }
+    });
+
+    return devicesWithConfidence;
   }
 
   addListener(callback) {
@@ -153,10 +239,9 @@ class BluetoothService {
   }
 
   cleanup() {
-    if (Platform.OS === 'web') {
+    if (Platform.OS === 'web' || !BleManager) {
       return;
     }
-
     this.stopScanning();
     if (this.discoverListener) {
       this.discoverListener.remove();

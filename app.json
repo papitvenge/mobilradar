@@ -13,9 +13,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.mobilradar.app",
       "infoPlist": {
-        "NSBluetoothAlwaysUsageDescription": "This app uses Bluetooth to detect nearby devices and display them on a radar screen.",
-        "NSBluetoothPeripheralUsageDescription": "This app uses Bluetooth to detect nearby devices and display them on a radar screen.",
-        "NSLocationWhenInUseUsageDescription": "This app needs location permission to scan for Bluetooth devices."
+        "NSCameraUsageDescription": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus.",
+        "NSBluetoothAlwaysUsageDescription": "MobilRadar bruker Bluetooth for å oppdage enheter i nærheten og vise dem på radarskjermen.",
+        "NSLocationWhenInUseUsageDescription": "MobilRadar bruker posisjon for å vise himmelretninger (N/S/Ø/V) på radaren under skanning."
       }
     },
     "android": {
@@ -26,12 +26,27 @@
         "BLUETOOTH_SCAN",
         "BLUETOOTH_CONNECT",
         "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA"
       ]
     },
     "web": {
       "bundler": "metro"
     },
-    "plugins": []
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MobilRadar bruker posisjon for å vise himmelretninger på radaren."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus."
+        }
+      ],
+      "react-native-wifi-reborn"
+    ]
   }
 }
