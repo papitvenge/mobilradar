@@ -1,25 +1,25 @@
 {
   "expo": {
-    "name": "MobilRadar",
-    "slug": "mobilradar",
+    "name": "NorScan",
+    "slug": "norscan",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "scheme": "mobilradar",
+    "scheme": "norscan",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mobilradar.app",
+      "bundleIdentifier": "com.norscan.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus.",
-        "NSBluetoothAlwaysUsageDescription": "MobilRadar bruker Bluetooth for å oppdage enheter i nærheten og vise dem på radarskjermen.",
-        "NSLocationWhenInUseUsageDescription": "MobilRadar bruker posisjon for å vise himmelretninger (N/S/Ø/V) på radaren under skanning."
+        "NSCameraUsageDescription": "NorScan bruker kamera for fotoskanning og 3D-rekonstruksjon.",
+        "NSBluetoothAlwaysUsageDescription": "NorScan kan bruke Bluetooth ved tilkobling av støttesensorer.",
+        "NSLocationWhenInUseUsageDescription": "NorScan bruker posisjon kun når det er nødvendig for enhetsfunksjonalitet."
       }
     },
     "android": {
-      "package": "com.mobilradar.app",
+      "package": "com.norscan.app",
       "permissions": [
         "BLUETOOTH",
         "BLUETOOTH_ADMIN",
@@ -37,13 +37,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "MobilRadar bruker posisjon for å vise himmelretninger på radaren."
+          "locationWhenInUsePermission": "NorScan bruker posisjon kun ved behov for enhetsfunksjonalitet."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus."
+          "cameraPermission": "NorScan bruker kamera for fotoskanning og 3D-rekonstruksjon."
         }
       ],
       "react-native-wifi-reborn"

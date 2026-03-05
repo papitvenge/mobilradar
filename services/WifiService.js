@@ -50,7 +50,7 @@ class WifiService {
         {
           title: 'Plassering kreves for Wi‑Fi-skanning',
           message:
-            'MobilRadar bruker plasseringstillatelse for å skanne etter Wi‑Fi‑nett i nærheten.',
+            'NorScan bruker plasseringstillatelse for å skanne etter Wi‑Fi‑nett i nærheten.',
           buttonNegative: 'Avslå',
           buttonPositive: 'Tillat',
         }

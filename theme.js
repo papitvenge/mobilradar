@@ -1,18 +1,17 @@
-/**
- * MobilRadar – neon/cyber tema for unge brukere
- */
 export const colors = {
-  bg: '#050508',
-  bgCard: 'rgba(18, 18, 28, 0.85)',
-  surface: '#0c0c14',
-  border: 'rgba(0, 245, 255, 0.25)',
-  borderStrong: 'rgba(0, 245, 255, 0.5)',
-  neonCyan: '#00f5ff',
-  neonMagenta: '#ff00aa',
-  neonGreen: '#00ff88',
-  neonPurple: '#a855f7',
-  text: '#e2e8f0',
-  textMuted: 'rgba(226, 232, 240, 0.6)',
+  bg: '#0c111b',
+  bgCard: '#151d2c',
+  surface: '#0f1624',
+  border: 'rgba(127, 156, 214, 0.35)',
+  borderStrong: 'rgba(127, 156, 214, 0.6)',
+  primary: '#2b7afc',
+  success: '#3dc776',
+  neonCyan: '#00d9ff',
+  neonMagenta: '#ff4dc4',
+  neonGreen: '#4de8a8',
+  neonPurple: '#8d7dff',
+  text: '#ecf1f9',
+  textMuted: 'rgba(236, 241, 249, 0.68)',
   danger: '#ff3366',
   warning: '#fbbf24',
 };
