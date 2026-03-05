@@ -164,7 +164,7 @@ class BluetoothService {
 
     const distance = Math.pow(10, (txPower - clipped) / (10 * exponent));
 
-    // Klipp til typisk bruksområde for en mobilradar.
+    // Klipp til typisk bruksområde i NorScan.
     const clamped = Math.max(0.1, Math.min(50, distance));
     return clamped;
   }

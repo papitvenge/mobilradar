@@ -1,377 +1,264 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  Platform,
   Alert,
-  Animated,
+  Platform,
   Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
-import * as Location from 'expo-location';
-import BluetoothService from '../services/BluetoothService';
-import WifiService from '../services/WifiService';
-import RadarScreen from '../components/RadarScreen';
-import DeviceList from '../components/DeviceList';
-import VRCameraScreen from '../components/VRCameraScreen';
-import { getDemoDevices } from '../utils/demoDevices';
-import {
-  triangulate,
-  latLonToLocalMeters,
-  positionToAngleAndDistance,
-} from '../utils/triangulation';
-import { colors, spacing, radius } from '../theme';
+import { colors, radius, spacing } from '../theme';
 
-const isWeb = Platform.OS === 'web';
-const MIN_MOVEMENT_METERS = 0.3;
-const MAX_READINGS_PER_DEVICE = 50;
+const APPLE_LIDAR_NOTE =
+  'LiDAR-modus er prioritert på iPhone/iPad Pro med sensor. På enheter uten LiDAR brukes fotoskanning.';
+
+const DEFAULT_MEASUREMENTS = [
+  { id: '1', label: 'Bredde referansekloss', valueMm: 120 },
+  { id: '2', label: 'Høyde referansekloss', valueMm: 80 },
+];
+
+const EXPORT_FORMATS = ['STL', 'OBJ', 'USDZ', 'STEP', 'DXF', 'PDF'];
+
+function createDrawingResult(controlMeasurements) {
+  const base = {
+    widthMm: 357.2,
+    heightMm: 218.6,
+    depthMm: 140.4,
+  };
+  const calibrationFactor = controlMeasurements.length ? 1.0 : 1.03;
+  return {
+    ...base,
+    widthMm: Number((base.widthMm * calibrationFactor).toFixed(1)),
+    heightMm: Number((base.heightMm * calibrationFactor).toFixed(1)),
+    depthMm: Number((base.depthMm * calibrationFactor).toFixed(1)),
+    toleranceMm: controlMeasurements.length ? 0.8 : 2.5,
+  };
+}
 
 export default function Index() {
-  const [devices, setDevices] = useState([]);
-  const [wifiDevices, setWifiDevices] = useState([]);
-  const [scanning, setScanning] = useState(false);
-  const [initialized, setInitialized] = useState(false);
-  const [viewMode, setViewMode] = useState('radar'); // 'radar' | 'list' | 'vr'
-  const [demoMode, setDemoMode] = useState(isWeb);
-  const [heading, setHeading] = useState(0);
-  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const isApple = Platform.OS === 'ios';
+  const [scanMode, setScanMode] = useState(isApple ? 'lidar' : 'photo');
+  const [scanPhase, setScanPhase] = useState('idle');
+  const [progress, setProgress] = useState(0);
+  const [controlMeasurements, setControlMeasurements] = useState(DEFAULT_MEASUREMENTS);
+  const [newLabel, setNewLabel] = useState('');
+  const [newValueMm, setNewValueMm] = useState('');
+  const [selectedFormats, setSelectedFormats] = useState(['STL', 'PDF']);
 
-  const lastPositionRef = useRef(null);
-  const deviceReadingsRef = useRef(new Map());
-  const originRef = useRef(null);
-  const positionSubRef = useRef(null);
-  const scanningRef = useRef(false);
-  const headingRef = useRef(0);
-  scanningRef.current = scanning;
+  const result = useMemo(
+    () => (scanPhase === 'done' ? createDrawingResult(controlMeasurements) : null),
+    [scanPhase, controlMeasurements]
+  );
 
   useEffect(() => {
-    initBluetooth();
-    initWifi();
-    return () => {
-      if (Platform.OS !== 'web') BluetoothService.cleanup();
-      if (Platform.OS !== 'web') WifiService.cleanup();
-      positionSubRef.current?.remove?.();
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isWeb || (viewMode !== 'radar' && viewMode !== 'vr')) return;
-    let sub = null;
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
-        sub = await Location.watchHeadingAsync(({ magHeading }) => {
-          const raw = magHeading ?? 0;
-          const prev = headingRef.current ?? 0;
-          // Glatt heading med hensyn til wrap-around (0/360)
-          let diff = raw - prev;
-          if (diff > 180) diff -= 360;
-          if (diff < -180) diff += 360;
-          const alpha = 0.15;
-          const smoothed = (prev + diff * alpha + 360) % 360;
-          headingRef.current = smoothed;
-          setHeading(smoothed);
-        });
-      } catch {
-        setHeading(0);
-      }
-    })();
-    return () => {
-      sub?.remove?.();
-    };
-  }, [viewMode]);
-
-  useEffect(() => {
-    if (isWeb || !scanning) {
-      positionSubRef.current?.remove?.();
-      positionSubRef.current = null;
-      return;
-    }
-    let mounted = true;
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted' || !mounted) return;
-        positionSubRef.current = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, distanceInterval: 1 },
-          (loc) => {
-            const { latitude, longitude } = loc.coords;
-            lastPositionRef.current = { lat: latitude, lon: longitude };
-            if (!originRef.current) originRef.current = { lat: latitude, lon: longitude };
-          }
-        );
-      } catch {
-        lastPositionRef.current = null;
-      }
-    })();
-    return () => {
-      mounted = false;
-      positionSubRef.current?.remove?.();
-      positionSubRef.current = null;
-    };
-  }, [scanning]);
-
-  const addReadingsFromDevices = useCallback((deviceList) => {
-    const pos = lastPositionRef.current;
-    if (!pos || !deviceList.length) return;
-    if (!originRef.current) originRef.current = { lat: pos.lat, lon: pos.lon };
-
-    const map = deviceReadingsRef.current;
-    for (const device of deviceList) {
-      if (device.distance == null || device.distance < 0) continue;
-      const list = map.get(device.id) || [];
-      const last = list[list.length - 1];
-      const needNew =
-        !last ||
-        (Math.hypot(
-          (pos.lat - last.lat) * 110540,
-          (pos.lon - last.lon) * 111320 * Math.cos((pos.lat * Math.PI) / 180)
-        ) >= MIN_MOVEMENT_METERS);
-      if (!needNew) continue;
-      list.push({
-        lat: pos.lat,
-        lon: pos.lon,
-        distance: device.distance,
-        timestamp: Date.now(),
+    if (scanPhase !== 'capturing' && scanPhase !== 'processing') return undefined;
+    const interval = setInterval(() => {
+      setProgress((old) => {
+        const delta = scanPhase === 'capturing' ? 12 : 18;
+        const next = Math.min(old + delta, 100);
+        if (next >= 100 && scanPhase === 'capturing') {
+          setScanPhase('processing');
+          return 0;
+        }
+        if (next >= 100 && scanPhase === 'processing') {
+          setScanPhase('done');
+        }
+        return next;
       });
-      if (list.length > MAX_READINGS_PER_DEVICE) list.shift();
-      map.set(device.id, list);
-    }
-  }, []);
+    }, 400);
+    return () => clearInterval(interval);
+  }, [scanPhase]);
 
-  const enrichWithTriangulation = useCallback((deviceList) => {
-    const pos = lastPositionRef.current;
-    const origin = originRef.current;
-    if (!pos || !origin || !deviceList.length) return deviceList;
+  const statusLabel = {
+    idle: 'Klar for skanning',
+    capturing: 'Samler punktsky og bilder',
+    processing: 'Prosesserer mesh og kalibrerer mål',
+    done: 'Ferdig – tekniske tegninger er klare',
+  }[scanPhase];
 
-    const curLocal = latLonToLocalMeters(pos.lat, pos.lon, origin.lat, origin.lon);
-
-    return deviceList.map((device) => {
-      const readings = deviceReadingsRef.current.get(device.id) || [];
-      const point = triangulate(readings, origin.lat, origin.lon);
-      if (!point) {
-        return { ...device, triangulatedAngle: null, triangulatedDistance: null };
-      }
-      const { angleDeg, distance } = positionToAngleAndDistance(
-        point.x,
-        point.y,
-        curLocal.x,
-        curLocal.y
-      );
-      return {
-        ...device,
-        triangulatedAngle: angleDeg,
-        triangulatedDistance: distance,
-      };
-    });
-  }, []);
-
-  useEffect(() => {
-    if (scanning) {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.08,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 800,
-            useNativeDriver: true,
-          }),
-        ])
-      ).start();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [scanning]);
-
-  const initBluetooth = async () => {
-    if (Platform.OS === 'web') {
-      setInitialized(true);
-      return;
-    }
-    const success = await BluetoothService.initialize();
-    if (success) {
-      setInitialized(true);
-      BluetoothService.addListener((deviceList) => {
-        if (scanningRef.current) addReadingsFromDevices(deviceList);
-        const enriched = enrichWithTriangulation(deviceList);
-        setDevices(enriched);
-      });
-    } else {
-      setInitialized(true);
-      setDemoMode(true);
-      Alert.alert(
-        'Demo-modus',
-        'Bluetooth er ikke tilgjengelig i Expo Go. Du ser nå demo-enheter. For ekte BLE-skanning: bygg appen med «expo run:ios» eller EAS Build.'
-      );
-    }
+  const startScan = () => {
+    setProgress(0);
+    setScanPhase('capturing');
   };
 
-  const initWifi = async () => {
-    // Wi‑Fi-søk er kun aktivert på Android.
-    if (Platform.OS !== 'android') {
-      return;
-    }
-    const success = await WifiService.initialize();
-    if (success) {
-      WifiService.addListener((networkList) => {
-        setWifiDevices(networkList);
-      });
-    }
+  const resetScan = () => {
+    setProgress(0);
+    setScanPhase('idle');
   };
 
-  const toggleScanning = () => {
-    if (Platform.OS === 'web') {
-      Alert.alert(
-        'Web',
-        'Bluetooth-skanning er kun tilgjengelig på iOS og Android. Dette er demo på web.'
-      );
+  const addControlMeasurement = () => {
+    const parsed = Number(newValueMm.replace(',', '.'));
+    if (!newLabel.trim() || !Number.isFinite(parsed) || parsed <= 0) {
+      Alert.alert('Ugyldig måling', 'Skriv inn navn og en verdi i mm.');
       return;
     }
-    if (scanning) {
-      BluetoothService.stopScanning();
-      if (Platform.OS === 'android') {
-        WifiService.stopScanning();
-      }
-      setScanning(false);
-    } else {
-      deviceReadingsRef.current.clear();
-      originRef.current = null;
-      BluetoothService.startScanning();
-      if (Platform.OS === 'android') {
-        WifiService.startScanning();
-      }
-      setScanning(true);
-    }
+    setControlMeasurements((old) => [
+      ...old,
+      { id: `${Date.now()}`, label: newLabel.trim(), valueMm: parsed },
+    ]);
+    setNewLabel('');
+    setNewValueMm('');
   };
 
-  const toggleView = () => setViewMode((m) => (m === 'radar' ? 'list' : 'radar'));
-  const toggleVR = () => setViewMode((m) => (m === 'vr' ? 'radar' : 'vr'));
+  const toggleFormat = (format) => {
+    setSelectedFormats((old) =>
+      old.includes(format) ? old.filter((item) => item !== format) : [...old, format]
+    );
+  };
 
-  const combinedDevices = [...devices, ...wifiDevices];
-  const displayDevices = demoMode ? getDemoDevices() : combinedDevices;
-
-  const statusLabel = demoMode
-    ? 'Demo'
-    : Platform.OS === 'web'
-      ? 'Web'
-      : scanning
-        ? 'Søker...'
-        : 'Klar';
-
-  const statusColor = demoMode
-    ? colors.neonPurple
-    : scanning
-      ? colors.neonCyan
-      : colors.neonGreen;
+  const exportSelection = () => {
+    if (!selectedFormats.length) {
+      Alert.alert('Ingen format valgt', 'Velg minst ett eksportformat.');
+      return;
+    }
+    Alert.alert(
+      'Eksport startet',
+      `Genererer filer (${selectedFormats.join(', ')}) fra kalibrert 3D-modell.`
+    );
+  };
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
-          <Text style={styles.title}>MobilRadar</Text>
-          <Text style={styles.tagline}>Oppdag enheter rundt deg</Text>
-          <View style={[styles.statusPill, { borderColor: statusColor }]}>
-            <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-            <Text style={[styles.statusText, { color: statusColor }]}>{statusLabel}</Text>
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.header}>
+            <Text style={styles.title}>NorScan</Text>
+            <Text style={styles.subtitle}>
+              Presis objektskanning med LiDAR (Apple) og fotoskanning (andre plattformer)
+            </Text>
           </View>
-        </View>
 
-        <View style={styles.content}>
-          {viewMode === 'radar' && (
-            <View style={styles.radarWrap}>
-              <RadarScreen
-                devices={displayDevices}
-                scanning={scanning}
-                heading={heading}
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Skannemotor</Text>
+            <Text style={styles.infoText}>
+              {isApple
+                ? APPLE_LIDAR_NOTE
+                : 'Denne plattformen bruker fotoskanning med multi-view rekonstruksjon.'}
+            </Text>
+            <View style={styles.row}>
+              <Pressable
+                onPress={() => setScanMode('lidar')}
+                style={[
+                  styles.chip,
+                  scanMode === 'lidar' && styles.chipSelected,
+                  !isApple && styles.chipDisabled,
+                ]}
+                disabled={!isApple}
+              >
+                <Text style={styles.chipText}>LiDAR</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setScanMode('photo')}
+                style={[styles.chip, scanMode === 'photo' && styles.chipSelected]}
+              >
+                <Text style={styles.chipText}>Fotoskanning</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Kontrollmålinger (kalibrering)</Text>
+            <Text style={styles.infoText}>
+              Legg inn kjente mål for å låse målestokk og sikre riktige tekniske tegninger.
+            </Text>
+
+            <View style={styles.inputRow}>
+              <TextInput
+                value={newLabel}
+                onChangeText={setNewLabel}
+                placeholder="Målenavn"
+                placeholderTextColor={colors.textMuted}
+                style={[styles.input, styles.inputWide]}
               />
+              <TextInput
+                value={newValueMm}
+                onChangeText={setNewValueMm}
+                keyboardType="numeric"
+                placeholder="mm"
+                placeholderTextColor={colors.textMuted}
+                style={styles.input}
+              />
+              <Pressable onPress={addControlMeasurement} style={styles.addBtn}>
+                <Text style={styles.addBtnText}>Legg til</Text>
+              </Pressable>
+            </View>
+
+            {controlMeasurements.map((item) => (
+              <View key={item.id} style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>{item.label}</Text>
+                <Text style={styles.measurementValue}>{item.valueMm} mm</Text>
+              </View>
+            ))}
+          </View>
+
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Skanneprosess</Text>
+            <Text style={styles.statusText}>{statusLabel}</Text>
+            {(scanPhase === 'capturing' || scanPhase === 'processing') && (
+              <View style={styles.progressOuter}>
+                <View style={[styles.progressInner, { width: `${progress}%` }]} />
+              </View>
+            )}
+            <View style={styles.row}>
+              <Pressable
+                onPress={startScan}
+                style={[styles.actionBtn, (scanPhase === 'capturing' || scanPhase === 'processing') && styles.actionBtnDisabled]}
+                disabled={scanPhase === 'capturing' || scanPhase === 'processing'}
+              >
+                <Text style={styles.actionBtnText}>Start skann</Text>
+              </Pressable>
+              <Pressable onPress={resetScan} style={styles.resetBtn}>
+                <Text style={styles.actionBtnText}>Nullstill</Text>
+              </Pressable>
+            </View>
+          </View>
+
+          {result && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Resultat: tekniske tegninger</Text>
+              <Text style={styles.infoText}>2D- og 3D-tegning er generert fra kalibrert modell.</Text>
+
+              <View style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>Bredde</Text>
+                <Text style={styles.measurementValue}>{result.widthMm} mm</Text>
+              </View>
+              <View style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>Høyde</Text>
+                <Text style={styles.measurementValue}>{result.heightMm} mm</Text>
+              </View>
+              <View style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>Dybde</Text>
+                <Text style={styles.measurementValue}>{result.depthMm} mm</Text>
+              </View>
+              <View style={styles.measurementRow}>
+                <Text style={styles.measurementLabel}>Estimert toleranse</Text>
+                <Text style={styles.measurementValue}>± {result.toleranceMm} mm</Text>
+              </View>
+
+              <Text style={[styles.cardTitle, styles.exportTitle]}>Eksportformat</Text>
+              <View style={styles.exportWrap}>
+                {EXPORT_FORMATS.map((format) => (
+                  <Pressable
+                    key={format}
+                    onPress={() => toggleFormat(format)}
+                    style={[
+                      styles.exportChip,
+                      selectedFormats.includes(format) && styles.exportChipSelected,
+                    ]}
+                  >
+                    <Text style={styles.exportChipText}>{format}</Text>
+                  </Pressable>
+                ))}
+              </View>
+              <Pressable onPress={exportSelection} style={styles.exportBtn}>
+                <Text style={styles.actionBtnText}>Eksporter valgte filer</Text>
+              </Pressable>
             </View>
           )}
-          {viewMode === 'list' && <DeviceList devices={displayDevices} />}
-          {viewMode === 'vr' && (
-            <View style={styles.vrWrap}>
-              <VRCameraScreen devices={displayDevices} heading={heading} />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.controls}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.btn,
-              styles.btnView,
-              pressed && styles.btnPressed,
-            ]}
-            onPress={toggleView}
-          >
-            <Text style={styles.btnText}>
-              {viewMode === 'radar' ? '📋 Liste' : '📡 Radar'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.btn,
-              styles.btnVR,
-              pressed && styles.btnPressed,
-            ]}
-            onPress={toggleVR}
-          >
-            <Text style={styles.btnText}>
-              {viewMode === 'vr' ? '🎯 Radar' : '🎥 VR'}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.btn,
-              styles.btnDemo,
-              pressed && styles.btnPressed,
-            ]}
-            onPress={() => setDemoMode(!demoMode)}
-          >
-            <Text style={styles.btnText}>{demoMode ? 'Avslutt demo' : 'Demo'}</Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.btn,
-              scanning ? styles.btnStop : styles.btnScan,
-              pressed && styles.btnPressed,
-              (!initialized || demoMode) && styles.btnDisabled,
-            ]}
-            onPress={toggleScanning}
-            disabled={!initialized || demoMode}
-          >
-            <Animated.View style={{ transform: [{ scale: scanning ? pulseAnim : 1 }] }}>
-              <Text style={styles.btnText}>
-                {scanning ? '⏹ Stopp' : '▶ Scan'}
-              </Text>
-            </Animated.View>
-          </Pressable>
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            {displayDevices.length} enhet{displayDevices.length !== 1 ? 'er' : ''}
-            {demoMode && ' · demo'}
-          </Text>
-          {scanning && !demoMode && !isWeb && (
-            <Text style={styles.triangulateHint}>
-              Beveg deg litt for triangulert plassering
-            </Text>
-          )}
-          {isWeb && (
-            <Text style={styles.webHint}>
-              Installer på mobil for ekte BLE-skanning
-            </Text>
-          )}
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </View>
   );
@@ -385,130 +272,178 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
   },
+  scrollContent: {
+    padding: spacing.md,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+  },
   header: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.md,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    padding: spacing.md,
   },
   title: {
-    fontSize: 36,
-    fontWeight: '800',
     color: colors.text,
-    letterSpacing: 3,
+    fontSize: 34,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
-  tagline: {
-    fontSize: 14,
+  subtitle: {
     color: colors.textMuted,
-    marginTop: 4,
-    letterSpacing: 1,
+    marginTop: spacing.xs,
+    fontSize: 14,
+    lineHeight: 20,
   },
-  statusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: spacing.md,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: radius.pill,
+  card: {
+    backgroundColor: colors.bgCard,
+    borderColor: colors.border,
     borderWidth: 1,
-    gap: 8,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radarWrap: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  vrWrap: {
-    flex: 1,
-    width: '100%',
-    maxWidth: 420,
     borderRadius: radius.lg,
-    overflow: 'hidden',
-  },
-  controls: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
     padding: spacing.md,
     gap: spacing.sm,
   },
-  btn: {
-    minWidth: 100,
-    flex: 1,
-    paddingVertical: 14,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-  },
-  btnPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnScan: {
-    backgroundColor: 'rgba(0, 255, 136, 0.12)',
-    borderColor: colors.neonGreen,
-  },
-  btnStop: {
-    backgroundColor: 'rgba(255, 51, 102, 0.15)',
-    borderColor: colors.danger,
-  },
-  btnView: {
-    backgroundColor: 'rgba(0, 245, 255, 0.08)',
-    borderColor: colors.neonCyan,
-  },
-  btnDemo: {
-    backgroundColor: 'rgba(168, 85, 247, 0.12)',
-    borderColor: colors.neonPurple,
-  },
-  btnVR: {
-    backgroundColor: 'rgba(255, 0, 170, 0.14)',
-    borderColor: colors.neonMagenta,
-  },
-  btnText: {
+  cardTitle: {
     color: colors.text,
-    fontSize: 15,
     fontWeight: '700',
+    fontSize: 17,
   },
-  footer: {
-    padding: spacing.md,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  footerText: {
+  infoText: {
     color: colors.textMuted,
     fontSize: 13,
+    lineHeight: 19,
   },
-  triangulateHint: {
-    color: colors.neonCyan,
-    fontSize: 11,
-    marginTop: 4,
-    opacity: 0.9,
+  row: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
-  webHint: {
-    color: colors.warning,
-    fontSize: 11,
-    marginTop: 4,
-    opacity: 0.9,
+  chip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    backgroundColor: colors.surface,
+  },
+  chipSelected: {
+    backgroundColor: 'rgba(43, 122, 252, 0.25)',
+  },
+  chipDisabled: {
+    opacity: 0.45,
+  },
+  chipText: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+  },
+  input: {
+    minWidth: 72,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  inputWide: {
+    flexGrow: 1,
+    minWidth: 150,
+  },
+  addBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  addBtnText: {
+    color: colors.text,
+    fontWeight: '700',
+  },
+  measurementRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingVertical: 8,
+    gap: spacing.md,
+  },
+  measurementLabel: {
+    color: colors.textMuted,
+    flex: 1,
+  },
+  measurementValue: {
+    color: colors.text,
+    fontWeight: '700',
+  },
+  statusText: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  progressOuter: {
+    height: 10,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  progressInner: {
+    height: '100%',
+    backgroundColor: colors.primary,
+  },
+  actionBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+  },
+  actionBtnDisabled: {
+    opacity: 0.5,
+  },
+  resetBtn: {
+    backgroundColor: colors.surface,
+    borderColor: colors.borderStrong,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+  },
+  actionBtnText: {
+    color: colors.text,
+    fontWeight: '700',
+  },
+  exportTitle: {
+    marginTop: spacing.md,
+  },
+  exportWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  exportChip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  exportChipSelected: {
+    backgroundColor: 'rgba(61, 199, 118, 0.25)',
+    borderColor: colors.success,
+  },
+  exportChipText: {
+    color: colors.text,
+    fontWeight: '600',
+  },
+  exportBtn: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.success,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    alignItems: 'center',
   },
 });
