@@ -1,5 +1,5 @@
 /**
- * MobilRadar – neon/cyber tema for unge brukere
+ * NorScan - mørkt, teknisk UI-tema
  */
 export const colors = {
   bg: '#050508',

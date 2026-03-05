@@ -1,7 +1,7 @@
 {
-  "name": "mobilradar",
+  "name": "norscan",
   "version": "1.0.0",
-  "description": "Mobile radar app using Bluetooth to detect nearby devices",
+  "description": "NorScan app for precise LiDAR and photo-based object scanning",
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
@@ -9,8 +9,8 @@
     "ios": "expo run:ios",
     "ios:device": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:ios --device --configuration Release",
     "ios:simulator": "expo run:ios",
-    "ios:open": "open ios/MobilRadar.xcworkspace",
-    "ios:build:device": "cd ios && xcodebuild -workspace MobilRadar.xcworkspace -scheme MobilRadar -configuration Release -destination 'generic/platform=iOS' -allowProvisioningUpdates build",
+    "ios:open": "open ios/NorScan.xcworkspace",
+    "ios:build:device": "cd ios && xcodebuild -workspace NorScan.xcworkspace -scheme NorScan -configuration Release -destination 'generic/platform=iOS' -allowProvisioningUpdates build",
     "web": "expo start --web",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "echo 'Build command placeholder'"
@@ -46,19 +46,20 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/papitvenge/mobilradar.git"
+    "url": "git+https://github.com/papitvenge/norscan.git"
   },
   "keywords": [
-    "bluetooth",
-    "radar",
-    "proximity",
-    "mobile"
+    "lidar",
+    "photogrammetry",
+    "scanning",
+    "cad",
+    "3d-print"
   ],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/papitvenge/mobilradar/issues"
+    "url": "https://github.com/papitvenge/norscan/issues"
   },
-  "homepage": "https://github.com/papitvenge/mobilradar#readme",
+  "homepage": "https://github.com/papitvenge/norscan#readme",
   "private": true
 }

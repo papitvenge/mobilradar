@@ -1,33 +1,28 @@
 {
   "expo": {
-    "name": "MobilRadar",
-    "slug": "mobilradar",
+    "name": "NorScan",
+    "slug": "norscan",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "scheme": "mobilradar",
+    "scheme": "norscan",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mobilradar.app",
+      "bundleIdentifier": "com.norscan.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus.",
-        "NSBluetoothAlwaysUsageDescription": "MobilRadar bruker Bluetooth for å oppdage enheter i nærheten og vise dem på radarskjermen.",
-        "NSLocationWhenInUseUsageDescription": "MobilRadar bruker posisjon for å vise himmelretninger (N/S/Ø/V) på radaren under skanning."
+        "NSCameraUsageDescription": "NorScan bruker kamera for skanning av produkter og objekter.",
+        "NSPhotoLibraryUsageDescription": "NorScan trenger tilgang til bilder for fotogrammetri og dokumentasjon av skanning.",
+        "NSPhotoLibraryAddUsageDescription": "NorScan lagrer skannede modeller og eksportfiler i bildebibliotek/filer."
       }
     },
     "android": {
-      "package": "com.mobilradar.app",
+      "package": "com.norscan.app",
       "permissions": [
-        "BLUETOOTH",
-        "BLUETOOTH_ADMIN",
-        "BLUETOOTH_SCAN",
-        "BLUETOOTH_CONNECT",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION",
-        "CAMERA"
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
       ]
     },
     "web": {
@@ -35,18 +30,11 @@
     },
     "plugins": [
       [
-        "expo-location",
-        {
-          "locationWhenInUsePermission": "MobilRadar bruker posisjon for å vise himmelretninger på radaren."
-        }
-      ],
-      [
         "expo-camera",
         {
-          "cameraPermission": "MobilRadar bruker kameraet for å vise radar-funn som varmesignaturer i AR-modus."
+          "cameraPermission": "NorScan bruker kamera for skanning av produkter og objekter."
         }
-      ],
-      "react-native-wifi-reborn"
+      ]
     ]
   }
 }
